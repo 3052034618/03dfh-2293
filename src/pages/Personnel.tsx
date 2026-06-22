@@ -51,18 +51,22 @@ export default function Personnel() {
   }, [top15])
 
   const customerData = useMemo(() => {
-    const flagged = complaintCases.filter(c => c.isRepeatCustomer || c.isCrossStore)
-    const grouped = new Map<string, { count: number; storeIds: Set<string>; isRepeat: boolean; isCross: boolean }>()
-    for (const c of flagged) {
-      const g = grouped.get(c.customerId) || { count: 0, storeIds: new Set<string>(), isRepeat: false, isCross: false }
+    const grouped = new Map<string, { count: number; storeIds: Set<string> }>()
+    for (const c of complaintCases) {
+      const g = grouped.get(c.customerId) || { count: 0, storeIds: new Set<string>() }
       g.count++
       g.storeIds.add(c.storeId)
-      if (c.isRepeatCustomer) g.isRepeat = true
-      if (c.isCrossStore) g.isCross = true
       grouped.set(c.customerId, g)
     }
     return Array.from(grouped.entries())
-      .map(([id, v]) => ({ id, count: v.count, stores: [...v.storeIds].map(s => storeMap.get(s) || s).join('、'), isRepeat: v.isRepeat, isCross: v.isCross }))
+      .filter(([, v]) => v.count >= 2 || v.storeIds.size >= 2)
+      .map(([id, v]) => ({
+        id,
+        count: v.count,
+        stores: [...v.storeIds].map(s => storeMap.get(s) || s).join('、'),
+        isRepeat: v.count >= 2,
+        isCross: v.storeIds.size >= 2,
+      }))
       .sort((a, b) => b.count - a.count)
   }, [storeMap])
 

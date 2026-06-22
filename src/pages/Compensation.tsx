@@ -1,12 +1,15 @@
 import { useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
   ComposedChart, Line,
 } from 'recharts'
+import { ExternalLink } from 'lucide-react'
 import { complaintCases, stores, projects, months } from '@/data/mockData'
 import { COMPENSATION_TYPE_LABELS } from '@/types'
 import type { CompensationType } from '@/types'
+import { useAppStore } from '@/store/useAppStore'
 
 const TYPE_COLORS: Record<CompensationType, string> = {
   refund: '#EF4444',
@@ -40,6 +43,13 @@ function formatAmount(v: number) {
 }
 
 export default function Compensation() {
+  const navigate = useNavigate()
+  const setSelectedCaseId = useAppStore(s => s.setSelectedCaseId)
+
+  const goToCase = (caseId: string) => {
+    setSelectedCaseId(caseId)
+    navigate('/case-review')
+  }
   const pieData = useMemo(() => {
     const map: Partial<Record<CompensationType, { type: CompensationType; amount: number; count: number }>> = {}
     for (const c of complaintCases) {
@@ -152,13 +162,17 @@ export default function Compensation() {
             {abnormalCases.map(c => (
               <div
                 key={c.id}
-                className="border border-coral/50 rounded-lg p-4 animate-glow space-y-2"
+                className="border border-coral/50 rounded-lg p-4 animate-glow space-y-2 cursor-pointer hover:bg-coral/5 transition-colors"
+                onClick={() => goToCase(c.id)}
               >
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-slate-light">{c.id}</span>
-                  <span className="font-tabular text-lg font-bold text-coral">
-                    ¥{c.compensationAmount.toLocaleString()}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-tabular text-lg font-bold text-coral">
+                      ¥{c.compensationAmount.toLocaleString()}
+                    </span>
+                    <ExternalLink className="w-3.5 h-3.5 text-ice" />
+                  </div>
                 </div>
                 <div className="flex items-center gap-3 text-sm">
                   <span className="text-white">{resolveStore(c.storeId)}</span>

@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { MessageSquare, Reply, MessageCircle, CheckCircle, ChevronDown, ChevronRight } from 'lucide-react'
 import { complaintCases, stores, projects, personnel, monthlyReviews } from '@/data/mockData'
 import { COMPENSATION_TYPE_LABELS, PERSONNEL_ROLE_LABELS, REASON_CATEGORIES } from '@/types'
 import type { ComplaintCase, TimelineEvent } from '@/types'
+import { useAppStore } from '@/store/useAppStore'
 
 const typeIcon: Record<TimelineEvent['type'], React.ReactNode> = {
   complaint: <MessageSquare className="w-4 h-4 text-coral" />,
@@ -21,6 +22,22 @@ export default function CaseReview() {
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null)
   const [filters, setFilters] = useState({ storeId: '', projectId: '', reasonCategory: '', compType: '', typicalOnly: false })
   const [expandedReviewId, setExpandedReviewId] = useState<string | null>(null)
+  const globalSelectedCaseId = useAppStore(s => s.selectedCaseId)
+  const setGlobalSelectedCaseId = useAppStore(s => s.setSelectedCaseId)
+
+  useEffect(() => {
+    if (globalSelectedCaseId && globalSelectedCaseId !== selectedCaseId) {
+      setSelectedCaseId(globalSelectedCaseId)
+    }
+  }, [globalSelectedCaseId])
+
+  useEffect(() => {
+    if (selectedCaseId && selectedCaseId === globalSelectedCaseId) {
+      const el = document.getElementById(`case-${selectedCaseId}`)
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      setGlobalSelectedCaseId(null)
+    }
+  }, [selectedCaseId, globalSelectedCaseId, setGlobalSelectedCaseId])
 
   const f = (k: string, v: string | boolean) => setFilters(prev => ({ ...prev, [k]: v }))
 
@@ -91,6 +108,7 @@ export default function CaseReview() {
           <tbody>
             {filtered.map(c => (
               <tr key={c.id}
+                id={`case-${c.id}`}
                 onClick={() => setSelectedCaseId(selectedCaseId === c.id ? null : c.id)}
                 className={`border-b border-slate/10 cursor-pointer transition-colors hover:bg-white/[0.03] ${selectedCaseId === c.id ? 'bg-ice/5' : ''}`}>
                 <td className="px-3 py-2 font-tabular text-ice">{c.id}</td>

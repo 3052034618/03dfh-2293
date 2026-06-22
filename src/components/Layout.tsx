@@ -1,4 +1,4 @@
-import { NavLink, useLocation } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
   Store,
@@ -10,6 +10,7 @@ import {
   ChevronLeft,
   ChevronRight,
   AlertTriangle,
+  ExternalLink,
 } from 'lucide-react'
 import { useAppStore } from '@/store/useAppStore'
 
@@ -32,9 +33,17 @@ const breadcrumbMap: Record<string, string> = {
 }
 
 export default function Layout({ children }: { children: React.ReactNode }) {
-  const { sidebarCollapsed, toggleSidebar, activeAlerts, showAlertPanel, toggleAlertPanel } = useAppStore()
+  const { sidebarCollapsed, toggleSidebar, activeAlerts, showAlertPanel, toggleAlertPanel, setSelectedCaseId } = useAppStore()
   const location = useLocation()
+  const navigate = useNavigate()
   const currentPage = breadcrumbMap[location.pathname] || '总览大屏'
+
+  const goToCase = (caseId?: string) => {
+    if (!caseId) return
+    setSelectedCaseId(caseId)
+    toggleAlertPanel()
+    navigate('/case-review')
+  }
 
   return (
     <div className="flex h-screen overflow-hidden bg-dark-950">
@@ -157,9 +166,23 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                               : 'text-ice'
                           }`}
                         />
-                        <div className="flex-1 min-w-0">
+                      <div className="flex-1 min-w-0">
                           <p className="text-sm text-white leading-relaxed">{alert.message}</p>
-                          <p className="text-xs text-slate mt-2 font-tabular">{alert.timestamp}</p>
+                          <div className="flex items-center justify-between mt-2">
+                            <p className="text-xs text-slate font-tabular">{alert.timestamp}</p>
+                            {alert.caseId && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  goToCase(alert.caseId)
+                                }}
+                                className="flex items-center gap-1 text-xs text-ice hover:text-ice-light transition-colors"
+                              >
+                                查看案例
+                                <ExternalLink className="w-3 h-3" />
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>

@@ -9,6 +9,8 @@ interface AppState {
   dismissAlert: (id: string) => void
   showAlertPanel: boolean
   toggleAlertPanel: () => void
+  selectedCaseId: string | null
+  setSelectedCaseId: (id: string | null) => void
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -18,4 +20,6 @@ export const useAppStore = create<AppState>((set) => ({
   dismissAlert: (id) => set((s) => ({ activeAlerts: s.activeAlerts.filter((a) => a.id !== id) })),
   showAlertPanel: false,
   toggleAlertPanel: () => set((s) => ({ showAlertPanel: !s.showAlertPanel })),
+  selectedCaseId: null,
+  setSelectedCaseId: (id) => set({ selectedCaseId: id }),
 }))
