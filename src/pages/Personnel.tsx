@@ -1,8 +1,14 @@
 import { useState, useMemo } from 'react'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
+import { useNavigate } from 'react-router-dom'
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
+  PieChart, Pie,
+} from 'recharts'
+import { X, ExternalLink } from 'lucide-react'
 import { personnel, complaintCases, stores, projects } from '@/data/mockData'
 import { PERSONNEL_ROLE_LABELS, COMPENSATION_TYPE_LABELS } from '@/types'
-import type { Personnel as PersonnelType } from '@/types'
+import type { Personnel as PersonnelType, CompensationType, ComplaintCase } from '@/types'
+import { useAppStore } from '@/store/useAppStore'
 
 type RoleFilter = 'all' | PersonnelType['role']
 
@@ -18,14 +24,31 @@ const ROLE_BG: Record<PersonnelType['role'], string> = {
   therapist: 'bg-emerald/20 text-emerald',
 }
 
+const COMP_COLORS: Record<CompensationType, string> = {
+  refund: '#EF4444',
+  rework: '#F59E0B',
+  repair: '#38BDF8',
+  gift: '#10B981',
+  cash: '#A78BFA',
+}
+
 const TRAINING_MAP: Record<PersonnelType['role'], string> = {
   doctor: '技术操作规范与术前沟通专项培训',
   consultant: '投诉预防与客户预期管理培训',
   therapist: '术后护理规范与操作SOP培训',
 }
 
+function formatAmount(v: number) {
+  return v >= 10000 ? `¥${(v / 10000).toFixed(1)}万` : `¥${v.toLocaleString()}`
+}
+
 export default function Personnel() {
+  const navigate = useNavigate()
+  const setCaseFilters = useAppStore(s => s.setCaseFilters)
+  const resetCaseFilters = useAppStore(s => s.resetCaseFilters)
+  const setSelectedCaseId = useAppStore(s => s.setSelectedCaseId)
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('all')
+  const [selectedPersonnelId, setSelectedPersonnelId] = useState<string | null>(null)
 
   const filtered = useMemo(
     () => (roleFilter === 'all' ? personnel : personnel.filter(p => p.role === roleFilter)),
@@ -38,7 +61,7 @@ export default function Personnel() {
   )
 
   const chartData = useMemo(
-    () => top15.map(p => ({ name: p.name, count: p.complaintCount, role: p.role })),
+    () => top15.map(p => ({ name: p.name, count: p.complaintCount, role: p.role, id: p.id })),
     [top15],
   )
 
@@ -75,6 +98,79 @@ export default function Personnel() {
     [],
   )
 
+  // Selected personnel analytics
+  const selectedPersonnel = useMemo(
+    () => (selectedPersonnelId ? personnel.find(p => p.id === selectedPersonnelId) ?? null : null),
+    [selectedPersonnelId],
+  )
+
+  const selectedCases = useMemo<ComplaintCase[]>(() => {
+    if (!selectedPersonnel) return []
+    return complaintCases.filter(c => c.personnelIds.includes(selectedPersonnel.id))
+  }, [selectedPersonnel])
+
+  const selectedProjectStat = useMemo(() => {
+    if (!selectedCases.length) return []
+    const m = new Map<string, { count: number; amount: number }>()
+    for (const c of selectedCases) {
+      const e = m.get(c.projectId) || { count: 0, amount: 0 }
+      e.count += 1
+      e.amount += c.compensationAmount
+      m.set(c.projectId, e)
+    }
+    return [...m.entries()]
+      .map(([pid, s]) => ({
+        pid, name: projectMap.get(pid) ?? pid, count: s.count, amount: s.amount,
+      }))
+      .sort((a, b) => b.count - a.count)
+  }, [selectedCases, projectMap])
+
+  const selectedCompStat = useMemo(() => {
+    if (!selectedCases.length) return []
+    const m = new Map<CompensationType, { count: number; amount: number }>()
+    for (const c of selectedCases) {
+      const e = m.get(c.compensationType) || { count: 0, amount: 0 }
+      e.count += 1
+      e.amount += c.compensationAmount
+      m.set(c.compensationType, e)
+    }
+    return [...m.entries()].map(([t, s]) => ({ type: t, count: s.count, amount: s.amount }))
+  }, [selectedCases])
+
+  const selectedRepeatCustomerStat = useMemo(() => {
+    if (!selectedPersonnel || !selectedCases.length) return { repeat: 0, cross: 0 }
+    let repeat = 0
+    let cross = 0
+    const seen = new Set<string>()
+    for (const c of selectedCases) {
+      if (seen.has(c.customerId)) continue
+      seen.add(c.customerId)
+      const customerAll = complaintCases.filter(x => x.customerId === c.customerId)
+      if (customerAll.length >= 2) repeat += 1
+      if (new Set(customerAll.map(x => x.storeId)).size >= 2) cross += 1
+    }
+    return { repeat, cross, unique: seen.size }
+  }, [selectedPersonnel, selectedCases])
+
+  const goCasesForPersonnel = () => {
+    if (!selectedPersonnel) return
+    resetCaseFilters()
+    setCaseFilters({ personnelId: selectedPersonnel.id })
+    navigate('/case-review')
+  }
+  const goCasesForPersonnelProject = (projectId: string) => {
+    if (!selectedPersonnel) return
+    resetCaseFilters()
+    setCaseFilters({ personnelId: selectedPersonnel.id, projectId })
+    navigate('/case-review')
+  }
+  const goCase = (caseId: string) => {
+    resetCaseFilters()
+    if (selectedPersonnel) setCaseFilters({ personnelId: selectedPersonnel.id })
+    setSelectedCaseId(caseId)
+    navigate('/case-review')
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -96,33 +192,178 @@ export default function Personnel() {
         </div>
       </div>
 
-      <div className="glass-card rounded-2xl p-6">
-        <h2 className="text-sm font-medium text-slate-light mb-4">投诉量 TOP15 人员</h2>
-        <div className="h-[420px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} layout="vertical" margin={{ left: 60, right: 20, top: 5, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(100,116,139,0.15)" />
-              <XAxis type="number" tick={{ fill: '#94A3B8', fontSize: 12 }} />
-              <YAxis type="category" dataKey="name" tick={{ fill: '#94A3B8', fontSize: 12 }} width={55} />
-              <Tooltip
-                contentStyle={{ background: 'rgba(15,23,42,0.95)', border: '1px solid rgba(100,116,139,0.3)', borderRadius: 8, fontSize: 13 }}
-                formatter={(v: number, _: string, p: any) => [v, PERSONNEL_ROLE_LABELS[p?.payload?.role] || '']}
-              />
-              <Bar dataKey="count" radius={[0, 4, 4, 0]} barSize={16}>
-                {chartData.map((d, i) => (
-                  <Cell key={i} fill={ROLE_COLORS[d.role]} fillOpacity={0.85} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 glass-card rounded-2xl p-6">
+          <h2 className="text-sm font-medium text-slate-light mb-4">投诉量 TOP15 人员（点击查看详情）</h2>
+          <div className="h-[420px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData} layout="vertical" margin={{ left: 60, right: 20, top: 5, bottom: 5 }}
+                onClick={(e: any) => {
+                  if (e?.activePayload?.[0]?.payload?.id) {
+                    setSelectedPersonnelId(e.activePayload[0].payload.id)
+                  }
+                }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(100,116,139,0.15)" />
+                <XAxis type="number" tick={{ fill: '#94A3B8', fontSize: 12 }} />
+                <YAxis type="category" dataKey="name" tick={{ fill: '#94A3B8', fontSize: 12 }} width={55} />
+                <Tooltip
+                  contentStyle={{ background: 'rgba(15,23,42,0.95)', border: '1px solid rgba(100,116,139,0.3)', borderRadius: 8, fontSize: 13 }}
+                  formatter={(v: number, _: string, p: any) => [v, PERSONNEL_ROLE_LABELS[p?.payload?.role] || '']}
+                />
+                <Bar dataKey="count" radius={[0, 4, 4, 0]} barSize={16} cursor="pointer">
+                  {chartData.map((d, i) => (
+                    <Cell key={i} fill={ROLE_COLORS[d.role]} fillOpacity={selectedPersonnelId === d.id ? 1 : 0.75} stroke={selectedPersonnelId === d.id ? '#fff' : 'transparent'} strokeWidth={2} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="flex gap-5 mt-3 justify-center">
+            {(Object.entries(ROLE_COLORS) as [PersonnelType['role'], string][]).map(([role, color]) => (
+              <span key={role} className="flex items-center gap-1.5 text-xs text-slate-light">
+                <span className="w-3 h-3 rounded-sm" style={{ background: color }} />
+                {PERSONNEL_ROLE_LABELS[role]}
+              </span>
+            ))}
+          </div>
         </div>
-        <div className="flex gap-5 mt-3 justify-center">
-          {(Object.entries(ROLE_COLORS) as [PersonnelType['role'], string][]).map(([role, color]) => (
-            <span key={role} className="flex items-center gap-1.5 text-xs text-slate-light">
-              <span className="w-3 h-3 rounded-sm" style={{ background: color }} />
-              {PERSONNEL_ROLE_LABELS[role]}
-            </span>
-          ))}
+
+        {/* Personnel detail panel */}
+        <div className="glass-card rounded-2xl p-5 min-h-[500px]">
+          <h2 className="text-sm font-medium text-slate-light mb-3">人员详情</h2>
+          {!selectedPersonnel ? (
+            <div className="h-full flex items-center justify-center text-slate text-sm text-center py-20">
+              点击左侧图表或下方培训卡片<br />查看该人员的关联案例、项目与赔付分布
+            </div>
+          ) : (
+            <div className="space-y-4 overflow-y-auto scrollbar-thin" style={{ maxHeight: 560 }}>
+              <div className="flex items-start gap-2">
+                <div>
+                  <h3 className="text-white font-semibold text-base">{selectedPersonnel.name}</h3>
+                  <p className="text-xs text-slate-light mt-0.5">
+                    {PERSONNEL_ROLE_LABELS[selectedPersonnel.role]} · {storeMap.get(selectedPersonnel.storeId)}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setSelectedPersonnelId(null)}
+                  className="ml-auto text-slate-light hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="bg-dark-800/60 rounded p-2">
+                  <div className="text-xs text-slate">投诉数</div>
+                  <div className="font-tabular text-lg text-coral font-semibold">{selectedCases.length}</div>
+                </div>
+                <div className="bg-dark-800/60 rounded p-2">
+                  <div className="text-xs text-slate">赔付总额</div>
+                  <div className="font-tabular text-lg text-amber font-semibold">{formatAmount(selectedCases.reduce((s, c) => s + c.compensationAmount, 0))}</div>
+                </div>
+                <div className="bg-dark-800/60 rounded p-2">
+                  <div className="text-xs text-slate">结案率</div>
+                  <div className="font-tabular text-lg text-emerald font-semibold">
+                    {selectedCases.length ? Math.round(selectedCases.filter(c => c.status === 'closed').length / selectedCases.length * 100) : 0}%
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t border-dark-700/50 pt-3">
+                <div className="text-xs text-slate mb-2">复诉 / 跨店客户（该人员接触）</div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="bg-coral/10 border border-coral/30 rounded px-2 py-1.5">
+                    <span className="text-coral">复诉客户</span>
+                    <span className="font-tabular text-white ml-2">{selectedRepeatCustomerStat.repeat} / {selectedRepeatCustomerStat.unique || 0}</span>
+                  </div>
+                  <div className="bg-amber/10 border border-amber/30 rounded px-2 py-1.5">
+                    <span className="text-amber">跨店客户</span>
+                    <span className="font-tabular text-white ml-2">{selectedRepeatCustomerStat.cross} / {selectedRepeatCustomerStat.unique || 0}</span>
+                  </div>
+                </div>
+              </div>
+
+              {selectedProjectStat.length > 0 && (
+                <div className="border-t border-dark-700/50 pt-3">
+                  <div className="text-xs text-slate mb-2">关联项目（点击可筛选案例）</div>
+                  <div className="space-y-1.5">
+                    {selectedProjectStat.map((p, i) => (
+                      <button
+                        key={p.pid}
+                        onClick={() => goCasesForPersonnelProject(p.pid)}
+                        className="w-full flex items-center gap-2 text-xs px-2 py-1.5 rounded hover:bg-dark-800/60 transition-colors text-left"
+                      >
+                        <span className="w-5 h-5 rounded bg-dark-700 text-slate-light flex items-center justify-center text-[10px] font-tabular">{i + 1}</span>
+                        <span className="text-white truncate">{p.name}</span>
+                        <span className="font-tabular text-coral ml-auto">{p.count}</span>
+                        <span className="font-tabular text-amber">{formatAmount(p.amount)}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {selectedCompStat.length > 0 && (
+                <div className="border-t border-dark-700/50 pt-3">
+                  <div className="text-xs text-slate mb-2">赔付方式分布</div>
+                  <div className="flex items-start gap-3">
+                    <div className="w-[100px] h-[100px] shrink-0">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie data={selectedCompStat} dataKey="count" innerRadius={26} outerRadius={46}>
+                            {selectedCompStat.map(d => <Cell key={d.type} fill={COMP_COLORS[d.type]} />)}
+                          </Pie>
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="flex-1 space-y-1">
+                      {selectedCompStat.map(d => (
+                        <div key={d.type} className="flex items-center gap-2 text-xs">
+                          <span className="w-2 h-2 rounded-sm" style={{ background: COMP_COLORS[d.type] }} />
+                          <span className="text-slate-light">{COMPENSATION_TYPE_LABELS[d.type]}</span>
+                          <span className="font-tabular text-white ml-auto">{d.count}件</span>
+                          <span className="font-tabular text-amber">{formatAmount(d.amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {selectedCases.length > 0 && (
+                <div className="border-t border-dark-700/50 pt-3">
+                  <div className="text-xs text-slate mb-2">关联案例（赔付额 Top 8）</div>
+                  <div className="space-y-1">
+                    {[...selectedCases].sort((a, b) => b.compensationAmount - a.compensationAmount).slice(0, 8).map(c => (
+                      <div
+                        key={c.id}
+                        onClick={() => goCase(c.id)}
+                        className="flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-dark-800/60 cursor-pointer"
+                      >
+                        <span className="font-tabular text-ice">{c.id}</span>
+                        <span className="text-slate-light truncate flex-1">{projectMap.get(c.projectId)}</span>
+                        <span className="font-tabular text-amber">¥{c.compensationAmount.toLocaleString()}</span>
+                        <ExternalLink className="w-3 h-3 text-slate-light" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <button
+                onClick={goCasesForPersonnel}
+                className="w-full mt-2 inline-flex items-center justify-center gap-2 px-3 py-2 bg-ice/10 text-ice border border-ice/30 rounded-lg text-sm hover:bg-ice/20 transition-colors"
+              >
+                查看该人员全部案例 <ExternalLink className="w-4 h-4" />
+              </button>
+
+              <div className="bg-dark-800/60 rounded-lg p-3 border border-dark-700/40">
+                <div className="text-xs text-emerald mb-1">建议培训方向</div>
+                <div className="text-xs text-slate-light leading-relaxed">{TRAINING_MAP[selectedPersonnel.role]}</div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -138,8 +379,10 @@ export default function Personnel() {
               ))}
             </div>
             {top15.map(p => (
-              <div key={p.id} className="flex items-center gap-1 mb-1">
-                <div className="w-20 text-xs text-slate-light truncate text-right pr-2 shrink-0">{p.name}</div>
+              <div key={p.id}
+                onClick={() => setSelectedPersonnelId(p.id)}
+                className="flex items-center gap-1 mb-1 cursor-pointer">
+                <div className={`w-20 text-xs truncate text-right pr-2 shrink-0 ${selectedPersonnelId === p.id ? 'text-ice font-semibold' : 'text-slate-light'}`}>{p.name}</div>
                 {heatmapProjects.map(proj => {
                   const related = p.relatedProjects.includes(proj.id)
                   return (
@@ -148,7 +391,7 @@ export default function Personnel() {
                         className="h-6 rounded-sm transition-colors"
                         style={{
                           background: related ? ROLE_COLORS[p.role] : 'rgba(30,41,59,0.5)',
-                          opacity: related ? 0.75 : 1,
+                          opacity: related ? (selectedPersonnelId === p.id ? 1 : 0.75) : 1,
                         }}
                         title={related ? `${p.name} - ${proj.name}` : ''}
                       />
@@ -190,10 +433,14 @@ export default function Personnel() {
       </div>
 
       <div className="glass-card rounded-2xl p-6">
-        <h2 className="text-sm font-medium text-slate-light mb-4">培训建议 — 高投诉人员</h2>
+        <h2 className="text-sm font-medium text-slate-light mb-4">培训建议 — 高投诉人员（点击查看详情）</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {trainingTargets.map(p => (
-            <div key={p.id} className="rounded-xl bg-dark-800/50 border border-dark-700/40 p-4 space-y-2">
+            <div
+              key={p.id}
+              onClick={() => setSelectedPersonnelId(p.id)}
+              className="rounded-xl bg-dark-800/50 border border-dark-700/40 p-4 space-y-2 cursor-pointer hover:bg-dark-800/80 transition-colors"
+            >
               <div className="flex items-center justify-between">
                 <span className="text-white font-medium">{p.name}</span>
                 <span className={`text-xs px-2 py-0.5 rounded-full ${ROLE_BG[p.role]}`}>

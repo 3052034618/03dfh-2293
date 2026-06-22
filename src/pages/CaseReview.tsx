@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react'
-import { MessageSquare, Reply, MessageCircle, CheckCircle, ChevronDown, ChevronRight } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { MessageSquare, Reply, MessageCircle, CheckCircle, ChevronDown, ChevronRight, X, ExternalLink } from 'lucide-react'
 import { complaintCases, stores, projects, personnel, monthlyReviews } from '@/data/mockData'
 import { COMPENSATION_TYPE_LABELS, PERSONNEL_ROLE_LABELS, REASON_CATEGORIES } from '@/types'
-import type { ComplaintCase, TimelineEvent } from '@/types'
-import { useAppStore } from '@/store/useAppStore'
+import type { ComplaintCase, TimelineEvent, CompensationType } from '@/types'
+import { useAppStore, emptyCaseFilters, type CaseFilters } from '@/store/useAppStore'
 
 const typeIcon: Record<TimelineEvent['type'], React.ReactNode> = {
   complaint: <MessageSquare className="w-4 h-4 text-coral" />,
@@ -18,12 +19,53 @@ const typeColor: Record<TimelineEvent['type'], string> = {
   resolution: 'bg-emerald/20 border-emerald/50',
 }
 
+function formatAmount(v: number) {
+  return v >= 10000 ? `¥${(v / 10000).toFixed(1)}万` : `¥${v.toLocaleString()}`
+}
+
+function describeFilters(f: CaseFilters) {
+  const parts: string[] = []
+  if (f.storeId) parts.push(`门店：${stores.find(s => s.id === f.storeId)?.name ?? f.storeId}`)
+  if (f.projectId) parts.push(`项目：${projects.find(p => p.id === f.projectId)?.name ?? f.projectId}`)
+  if (f.personnelId) parts.push(`人员：${personnel.find(p => p.id === f.personnelId)?.name ?? f.personnelId}`)
+  if (f.reasonCategory) parts.push(`原因：${REASON_CATEGORIES[f.reasonCategory] ?? f.reasonCategory}`)
+  if (f.compType) parts.push(`赔付：${COMPENSATION_TYPE_LABELS[f.compType as CompensationType]}`)
+  if (f.amountMin > 0 || f.amountMax < Infinity) {
+    const min = f.amountMin > 0 ? `¥${f.amountMin.toLocaleString()}` : '0'
+    const max = f.amountMax < Infinity ? `¥${f.amountMax.toLocaleString()}` : '∞'
+    parts.push(`金额：${min} - ${max}`)
+  }
+  if (f.typicalOnly) parts.push('仅典型案例')
+  return parts
+}
+
 export default function CaseReview() {
-  const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null)
-  const [filters, setFilters] = useState({ storeId: '', projectId: '', reasonCategory: '', compType: '', typicalOnly: false })
-  const [expandedReviewId, setExpandedReviewId] = useState<string | null>(null)
+  const navigate = useNavigate()
   const globalSelectedCaseId = useAppStore(s => s.selectedCaseId)
   const setGlobalSelectedCaseId = useAppStore(s => s.setSelectedCaseId)
+  const globalCaseFilters = useAppStore(s => s.caseFilters)
+  const setGlobalCaseFilters = useAppStore(s => s.setCaseFilters)
+  const resetGlobalCaseFilters = useAppStore(s => s.resetCaseFilters)
+
+  const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null)
+  const [filters, setFilters] = useState<CaseFilters>({ ...emptyCaseFilters })
+  const [expandedReviewId, setExpandedReviewId] = useState<string | null>(null)
+
+  // Sync from global on mount / when global changes
+  useEffect(() => {
+    const hasAnyGlobal =
+      !!globalCaseFilters.storeId ||
+      !!globalCaseFilters.projectId ||
+      !!globalCaseFilters.personnelId ||
+      !!globalCaseFilters.reasonCategory ||
+      !!globalCaseFilters.compType ||
+      globalCaseFilters.amountMin > 0 ||
+      globalCaseFilters.amountMax < Infinity ||
+      globalCaseFilters.typicalOnly
+    if (hasAnyGlobal) {
+      setFilters({ ...globalCaseFilters })
+    }
+  }, [globalCaseFilters])
 
   useEffect(() => {
     if (globalSelectedCaseId && globalSelectedCaseId !== selectedCaseId) {
@@ -39,26 +81,68 @@ export default function CaseReview() {
     }
   }, [selectedCaseId, globalSelectedCaseId, setGlobalSelectedCaseId])
 
-  const f = (k: string, v: string | boolean) => setFilters(prev => ({ ...prev, [k]: v }))
+  const f = (k: keyof CaseFilters, v: string | number | boolean) => {
+    const next = { ...filters, [k]: v } as CaseFilters
+    setFilters(next)
+    setGlobalCaseFilters(next)
+  }
+
+  const clearFilters = () => {
+    setFilters({ ...emptyCaseFilters })
+    resetGlobalCaseFilters()
+  }
+
+  const filterDescriptions = useMemo(() => describeFilters(filters), [filters])
 
   const filtered = complaintCases.filter(c => {
     if (filters.storeId && c.storeId !== filters.storeId) return false
     if (filters.projectId && c.projectId !== filters.projectId) return false
+    if (filters.personnelId && !c.personnelIds.includes(filters.personnelId)) return false
     if (filters.reasonCategory && c.reasonCategory !== filters.reasonCategory) return false
     if (filters.compType && c.compensationType !== filters.compType) return false
+    if (filters.amountMin > 0 && c.compensationAmount < filters.amountMin) return false
+    if (filters.amountMax < Infinity && c.compensationAmount >= filters.amountMax) return false
     if (filters.typicalOnly && !c.isTypical) return false
     return true
   })
+
+  const filteredTotalAmount = useMemo(
+    () => filtered.reduce((s, c) => s + c.compensationAmount, 0),
+    [filtered],
+  )
+  const filteredClosedCount = useMemo(
+    () => filtered.filter(c => c.status === 'closed').length,
+    [filtered],
+  )
 
   const selected = selectedCaseId ? complaintCases.find(c => c.id === selectedCaseId) ?? null : null
   const storeName = (id: string) => stores.find(s => s.id === id)?.name ?? id
   const projName = (id: string) => projects.find(p => p.id === id)?.name ?? id
   const personnelLabel = (id: string) => { const p = personnel.find(x => x.id === id); return p ? `${p.name}(${PERSONNEL_ROLE_LABELS[p.role]})` : id }
 
+  const selectedStore = stores.find(s => s.id === filters.storeId)
+
   return (
     <div className="space-y-6">
-      {/* Filter Bar */}
-      <div className="glass-card rounded-xl p-4">
+      {/* Summary / Filter Bar */}
+      <div className="glass-card rounded-xl p-4 space-y-3">
+        {filterDescriptions.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 pb-3 border-b border-dark-700/50">
+            <span className="text-xs text-slate-light shrink-0">当前筛选：</span>
+            {filterDescriptions.map(text => (
+              <span key={text} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-ice/10 text-ice border border-ice/30 text-xs">
+                {text}
+              </span>
+            ))}
+            <button
+              onClick={clearFilters}
+              className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-dark-800 text-slate-light text-xs hover:bg-dark-700 transition-colors"
+            >
+              <X className="w-3.5 h-3.5" /> 清除筛选
+            </button>
+          </div>
+        )}
+
         <div className="flex flex-wrap gap-3 items-center">
           <select value={filters.storeId} onChange={e => f('storeId', e.target.value)}
             className="bg-dark-800 border border-slate/30 rounded-lg px-3 py-1.5 text-sm text-slate-light">
@@ -69,6 +153,11 @@ export default function CaseReview() {
             className="bg-dark-800 border border-slate/30 rounded-lg px-3 py-1.5 text-sm text-slate-light">
             <option value="">全部项目</option>
             {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <select value={filters.personnelId} onChange={e => f('personnelId', e.target.value)}
+            className="bg-dark-800 border border-slate/30 rounded-lg px-3 py-1.5 text-sm text-slate-light">
+            <option value="">全部人员</option>
+            {personnel.map(p => <option key={p.id} value={p.id}>{p.name}（{PERSONNEL_ROLE_LABELS[p.role]}）</option>)}
           </select>
           <select value={filters.reasonCategory} onChange={e => f('reasonCategory', e.target.value)}
             className="bg-dark-800 border border-slate/30 rounded-lg px-3 py-1.5 text-sm text-slate-light">
@@ -85,7 +174,21 @@ export default function CaseReview() {
               className="accent-emerald w-4 h-4 rounded" />
             仅典型案例
           </label>
-          <span className="ml-auto text-xs text-slate font-tabular">{filtered.length} 条记录</span>
+          <div className="ml-auto flex items-center gap-4">
+            <span className="text-xs text-slate-light font-tabular">
+              <span className="text-coral font-semibold">{filtered.length}</span> 条记录 ·
+              结案 <span className="text-emerald font-semibold">{filteredClosedCount}</span> ·
+              赔付 <span className="text-amber font-semibold">{formatAmount(filteredTotalAmount)}</span>
+            </span>
+            {selectedStore && (
+              <button
+                onClick={() => navigate(`/store/${selectedStore.id}`)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-ice/10 text-ice border border-ice/30 rounded-lg text-xs hover:bg-ice/20 transition-colors"
+              >
+                查看门店详情 <ExternalLink className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -97,6 +200,7 @@ export default function CaseReview() {
               <th className="px-3 py-2.5 text-left">案例ID</th>
               <th className="px-3 py-2.5 text-left">门店</th>
               <th className="px-3 py-2.5 text-left">项目</th>
+              <th className="px-3 py-2.5 text-left">人员</th>
               <th className="px-3 py-2.5 text-left">投诉日期</th>
               <th className="px-3 py-2.5 text-left">状态</th>
               <th className="px-3 py-2.5 text-left">原因</th>
@@ -114,6 +218,9 @@ export default function CaseReview() {
                 <td className="px-3 py-2 font-tabular text-ice">{c.id}</td>
                 <td className="px-3 py-2">{storeName(c.storeId)}</td>
                 <td className="px-3 py-2">{projName(c.projectId)}</td>
+                <td className="px-3 py-2 text-xs text-slate-light max-w-[120px] truncate" title={c.personnelIds.map(personnelLabel).join('、')}>
+                  {c.personnelIds.map(personnelLabel).join('、')}
+                </td>
                 <td className="px-3 py-2 font-tabular text-slate-light">{c.complaintDate}</td>
                 <td className="px-3 py-2">
                   <span className={`px-2 py-0.5 rounded-full text-xs ${c.status === 'open' ? 'bg-coral/20 text-coral-light' : 'bg-emerald/20 text-emerald-light'}`}>
@@ -132,6 +239,11 @@ export default function CaseReview() {
                 </td>
               </tr>
             ))}
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={10} className="px-3 py-12 text-center text-slate text-sm">没有符合条件的案例</td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -149,6 +261,8 @@ export default function CaseReview() {
             <div><span className="text-slate">状态</span><p className="mt-0.5"><span className={`px-2 py-0.5 rounded-full text-xs ${selected.status === 'open' ? 'bg-coral/20 text-coral-light' : 'bg-emerald/20 text-emerald-light'}`}>{selected.status === 'open' ? '进行中' : '已结案'}</span></p></div>
             <div><span className="text-slate">投诉日期</span><p className="text-white mt-0.5 font-tabular">{selected.complaintDate}</p></div>
             <div><span className="text-slate">结案日期</span><p className="text-white mt-0.5 font-tabular">{selected.closeDate ?? '—'}</p></div>
+            <div><span className="text-slate">赔付方式</span><p className="text-white mt-0.5">{COMPENSATION_TYPE_LABELS[selected.compensationType]}</p></div>
+            <div><span className="text-slate">赔付金额</span><p className="text-amber mt-0.5 font-tabular font-semibold">¥{selected.compensationAmount.toLocaleString()}</p></div>
           </div>
 
           {/* Timeline */}
@@ -197,6 +311,12 @@ export default function CaseReview() {
                   <span className="text-sm font-medium text-white">{r.storeName}</span>
                   <span className="text-xs text-slate font-tabular">{r.month}</span>
                   <span className="ml-auto text-xs text-slate-light max-w-[400px] truncate">{r.summary}</span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); navigate(`/store/${r.storeId}`) }}
+                    className="ml-2 px-2 py-1 rounded bg-ice/10 text-ice text-xs border border-ice/30 hover:bg-ice/20 transition-colors"
+                  >
+                    门店详情
+                  </button>
                 </button>
                 {open && (
                   <div className="px-4 pb-4 space-y-3 text-sm">

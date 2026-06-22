@@ -1,6 +1,8 @@
 import { useState, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Legend, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts'
 import { stores, projects } from '@/data/mockData'
+import { ExternalLink } from 'lucide-react'
 
 const REGIONS = ['全部', '华北', '华东', '华南', '西南', '华中']
 const PROJECT_CATEGORIES = ['全部', ...new Set(projects.map(p => p.category))]
@@ -15,6 +17,8 @@ const closeRateColor = (rate: number) => {
 }
 
 export default function StoreCompare() {
+  const navigate = useNavigate()
+  const goStore = (id: string) => navigate(`/store/${id}`)
   const [region, setRegion] = useState('全部')
   const [projectCategory, setProjectCategory] = useState('全部')
   const [sortKey, setSortKey] = useState<SortKey>('complaintCount')
@@ -132,8 +136,13 @@ export default function StoreCompare() {
             </thead>
             <tbody>
               {filteredStores.map(s => (
-                <tr key={s.id} className="border-b border-dark-700/50 hover:bg-dark-800/50 transition-colors">
-                  <td className="px-4 py-3 font-medium text-white">{s.name}</td>
+                <tr key={s.id}
+                  onClick={() => goStore(s.id)}
+                  className="border-b border-dark-700/50 hover:bg-dark-800/50 transition-colors cursor-pointer">
+                  <td className="px-4 py-3 font-medium text-white flex items-center gap-2">
+                    {s.name}
+                    <ExternalLink className="w-3.5 h-3.5 text-ice shrink-0" />
+                  </td>
                   <td className="px-4 py-3 text-slate-light">{s.region}</td>
                   <td className="px-4 py-3 font-tabular">{s.complaintCount}</td>
                   <td className={`px-4 py-3 font-tabular ${closeRateColor(s.closeRate)}`}>{s.closeRate}%</td>

@@ -1,6 +1,7 @@
 import { stores, months, monthlyReviews } from '@/data/mockData'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
-import { TrendingUp, TrendingDown, FileText, Clock, AlertCircle, MessageSquare } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { TrendingUp, TrendingDown, FileText, Clock, AlertCircle, MessageSquare, ExternalLink } from 'lucide-react'
 
 const totalComplaints = stores.reduce((s, st) => s + st.complaintCount, 0)
 const totalCompensation = stores.reduce((s, st) => s + st.totalCompensation, 0)
@@ -26,6 +27,8 @@ const rankBadges = ['🥇', '🥈', '🥉']
 const fmt = (n: number) => n.toLocaleString()
 
 export default function Overview() {
+  const navigate = useNavigate()
+  const goStore = (storeId: string) => navigate(`/store/${storeId}`)
   return (
     <div className="space-y-6 p-6">
       <h1 className="text-2xl font-bold text-white">数据总览</h1>
@@ -96,9 +99,13 @@ export default function Overview() {
           </thead>
           <tbody>
             {sortedStores.map((st, i) => (
-              <tr key={st.id} className={`border-b border-slate-700/30 ${st.closeRate < 85 ? 'bg-red-500/10' : ''}`}>
+              <tr key={st.id} className={`border-b border-slate-700/30 ${st.closeRate < 85 ? 'bg-red-500/10' : ''} cursor-pointer hover:bg-white/[0.03] transition-colors`}
+                onClick={() => goStore(st.id)}>
                 <td className="py-3 px-2">{i < 3 ? rankBadges[i] : i + 1}</td>
-                <td className="py-3 px-2 text-white font-medium">{st.name}</td>
+                <td className="py-3 px-2 text-white font-medium flex items-center gap-2">
+                  {st.name}
+                  <ExternalLink className="w-3.5 h-3.5 text-ice shrink-0" />
+                </td>
                 <td className="py-3 px-2 text-slate-400">{st.region}</td>
                 <td className="py-3 px-2 text-right font-tabular text-white">{st.complaintCount}</td>
                 <td className={`py-3 px-2 text-right font-tabular ${st.closeRate < 85 ? 'text-red-400 font-semibold' : 'text-emerald-400'}`}>
@@ -116,11 +123,16 @@ export default function Overview() {
         <h2 className="text-lg font-semibold text-white mb-4">月度复盘摘要</h2>
         <div className="grid grid-cols-2 gap-4">
           {monthlyReviews.map((r) => (
-            <div key={r.storeId} className="glass-card glass-card-hover rounded-xl p-5 transition-all">
+            <div
+              key={r.storeId}
+              onClick={() => goStore(r.storeId)}
+              className="glass-card glass-card-hover rounded-xl p-5 transition-all cursor-pointer"
+            >
               <div className="flex items-center gap-2 mb-3">
                 <MessageSquare className="w-4 h-4 text-ice" />
                 <h3 className="text-white font-semibold">{r.storeName}</h3>
                 <span className="text-xs text-slate-500 ml-auto">{r.month}</span>
+                <ExternalLink className="w-3.5 h-3.5 text-ice" />
               </div>
               <p className="text-slate-300 text-sm leading-relaxed mb-3">{r.summary}</p>
               <div className="space-y-2 text-xs">
